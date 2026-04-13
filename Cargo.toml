@@ -1,0 +1,38 @@
+[package]
+name = "mks"
+version = "0.1.0"
+edition = "2021"
+description = "Store, index, and query markdown documents with full-text search and knowledge graph"
+license = "MIT"
+
+[[bin]]
+name = "mks"
+path = "src/main.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive"] }
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+# Error handling
+thiserror = "2"
+anyhow = "1"
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+# Glob pattern matching
+glob = "0.3"
+# Home directory resolution
+dirs = "5"
+# SQLite with FTS5 (bundled = no system SQLite dependency, FTS5 guaranteed)
+rusqlite = { version = "0.32", features = ["bundled"] }
+# Content hashing for document IDs
+sha2 = "0.10"
+hex = "0.4"
+# WikiLink / tag / concept extraction
+regex = "1"
+# File-system watching (watch mode)
+notify = "6"
+# HTTP for URL ingestion and Ollama embedding API
+ureq = { version = "2", features = ["json"] }
