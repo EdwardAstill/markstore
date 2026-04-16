@@ -104,12 +104,12 @@ mks search "vec: papers about gradient descent" --collection research
 
 `vec:` queries embed the query text via Ollama and score all stored documents by cosine similarity. Falls back to BM25 automatically if Ollama is unavailable.
 
-### Filter with `--where`
+### Filter with `--where-clause`
 
 ```sh
-mks search "learning" --where "collection=papers"
-mks search "training" --where "date>2024-01"
-mks search "model" --where "title!=Untitled"
+mks search "learning" --where-clause "collection=papers"
+mks search "training" --where-clause "date>2024-01"
+mks search "model" --where-clause "title!=Untitled"
 ```
 
 Post-filters results by document fields or YAML frontmatter values. Supported fields: `collection`, `path`, `title`, or any frontmatter key. Operators: `=` `!=` `>` `<` `>=` `<=`. Numeric and string comparisons both work.

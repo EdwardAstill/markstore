@@ -116,6 +116,12 @@ impl Db {
         Ok(Self { conn })
     }
 
+    /// Runs PRAGMA optimize and VACUUM to reclaim space and speed up queries.
+    pub fn optimize(&self) -> MksResult<()> {
+        self.conn.execute_batch("PRAGMA optimize; VACUUM;")?;
+        Ok(())
+    }
+
     // ── Documents ─────────────────────────────────────────────────────────────
 
     /// Returns the document ID if the content hash already exists in the store.
@@ -248,12 +254,16 @@ impl Db {
     }
 
     /// Full-text search over chunks using FTS5 BM25 ranking.
+    /// `sort` controls post-dedup ordering: "relevance" (default), "date", "title".
+    /// `offset` skips the first N deduplicated results (for pagination).
     pub fn fts_search(
         &self,
         query: &str,
         limit: usize,
+        offset: usize,
         collection: Option<&str>,
         with_snippets: bool,
+        sort: &str,
     ) -> MksResult<Vec<SearchResult>> {
         let snippet_expr = if with_snippets {
             "snippet(chunks_fts, 2, '**', '**', '…', 20)"
@@ -261,36 +271,53 @@ impl Db {
             "NULL"
         };
 
+        // Fetch more rows than needed so dedup+sort+offset works correctly.
+        // We over-fetch by 10x to ensure enough unique docs after dedup.
+        let fetch_limit = (limit + offset) * 10;
+
         let sql = format!(
-            "SELECT c.doc_id, c.title, {}, d.collection
+            "SELECT c.doc_id, c.title, {snippet}, d.collection, d.added_at
              FROM chunks_fts c
              JOIN documents d ON d.id = c.doc_id
              WHERE chunks_fts MATCH ?1
-             {}
+             {col_filter}
              ORDER BY rank
              LIMIT ?2",
-            snippet_expr,
-            collection
-                .map(|_| "AND d.collection = ?3")
-                .unwrap_or(""),
+            snippet = snippet_expr,
+            col_filter = collection.map(|_| "AND d.collection = ?3").unwrap_or(""),
         );
 
         let mut stmt = self.conn.prepare(&sql)?;
-        let results = if let Some(col) = collection {
-            stmt.query_map(params![query, limit as i64, col], row_to_search_result)?
+        let raw_results: Vec<(SearchResult, String)> = if let Some(col) = collection {
+            stmt.query_map(params![query, fetch_limit as i64, col], row_to_search_result_with_date)?
                 .collect::<rusqlite::Result<Vec<_>>>()?
         } else {
-            stmt.query_map(params![query, limit as i64], row_to_search_result)?
+            stmt.query_map(params![query, fetch_limit as i64], row_to_search_result_with_date)?
                 .collect::<rusqlite::Result<Vec<_>>>()?
         };
 
-        // Deduplicate by doc_id (multiple chunks may match; keep highest rank = first)
+        // Deduplicate by doc_id (keep highest rank = first occurrence)
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let deduped = results
+        let mut deduped: Vec<(SearchResult, String)> = raw_results
             .into_iter()
-            .filter(|r| seen.insert(r.doc_id.clone()))
+            .filter(|(r, _)| seen.insert(r.doc_id.clone()))
             .collect();
-        Ok(deduped)
+
+        // Sort
+        match sort {
+            "date" => deduped.sort_by(|(_, a_date), (_, b_date)| b_date.cmp(a_date)),
+            "title" => deduped.sort_by(|(a, _), (b, _)| a.title.cmp(&b.title)),
+            _ => {} // relevance — already ordered by rank
+        }
+
+        // Apply offset + limit
+        let results = deduped
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .map(|(r, _)| r)
+            .collect();
+        Ok(results)
     }
 
     // ── Graph: nodes ──────────────────────────────────────────────────────────
@@ -445,9 +472,11 @@ impl Db {
         let doc_node_id = format!("doc_{}", doc_id);
         self.conn.execute("DELETE FROM edges WHERE doc_id = ?1", params![doc_id])?;
         self.conn.execute("DELETE FROM nodes WHERE id = ?1", params![doc_node_id])?;
-        // Remove orphaned wikilink/tag nodes (frequency drops to zero after decrement)
+        // Remove orphaned wikilink/tag/concept nodes no longer referenced by any edge
         self.conn.execute(
-            "DELETE FROM nodes WHERE frequency <= 1 AND kind != 'document' AND doc_id IS NULL",
+            "DELETE FROM nodes WHERE kind != 'document'
+             AND id NOT IN (SELECT DISTINCT source FROM edges)
+             AND id NOT IN (SELECT DISTINCT target FROM edges)",
             [],
         )?;
         Ok(())
@@ -856,6 +885,17 @@ fn row_to_search_result(row: &rusqlite::Row<'_>) -> rusqlite::Result<SearchResul
         snippet: row.get(2)?,
         collection: row.get(3)?,
     })
+}
+
+fn row_to_search_result_with_date(row: &rusqlite::Row<'_>) -> rusqlite::Result<(SearchResult, String)> {
+    let sr = SearchResult {
+        doc_id: row.get(0)?,
+        title: row.get(1)?,
+        snippet: row.get(2)?,
+        collection: row.get(3)?,
+    };
+    let date: String = row.get(4)?;
+    Ok((sr, date))
 }
 
 // ── Public helpers (called from main.rs) ─────────────────────────────────────

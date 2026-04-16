@@ -1,7 +1,23 @@
 /// Pure types and extraction logic — no database dependency.
 /// Traversal functions (BFS, Dijkstra, god-nodes) live in db.rs as Db methods.
 use std::collections::HashSet;
+use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
+
+fn wikilink_re() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]").unwrap())
+}
+
+fn hashtag_re() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"(?:^|\s)#([a-zA-Z][a-zA-Z0-9_-]*)").unwrap())
+}
+
+fn concept_re() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){1,2})\b").unwrap())
+}
 
 // ── Node / Edge types ────────────────────────────────────────────────────────
 
@@ -145,7 +161,7 @@ fn enclosing_paragraph(text: &str, pos: usize) -> Option<String> {
 /// Handles `[[Target]]` and `[[Target|Display Text]]`.
 /// Lines inside code fences are skipped.
 pub fn extract_wikilinks(content: &str) -> Vec<(String, Option<String>)> {
-    let re = regex::Regex::new(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]").unwrap();
+    let re = wikilink_re();
     let mut results = Vec::new();
     let mut in_fence = false;
     let mut byte_offset = 0usize;
@@ -173,7 +189,7 @@ pub fn extract_wikilinks(content: &str) -> Vec<(String, Option<String>)> {
 
 /// Extracts hashtag labels from content (not inside code fences).
 pub fn extract_tags(content: &str) -> Vec<String> {
-    let re = regex::Regex::new(r"(?:^|\s)#([a-zA-Z][a-zA-Z0-9_-]*)").unwrap();
+    let re = hashtag_re();
     let mut tags = Vec::new();
     let mut in_fence = false;
     for line in content.lines() {
@@ -205,7 +221,7 @@ const CONCEPT_STOPWORDS: &[&str] = &[
 /// `INFERRED` confidence.
 pub fn extract_concepts(body: &str) -> Vec<String> {
     use std::collections::HashMap;
-    let re = regex::Regex::new(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){1,2})\b").unwrap();
+    let re = concept_re();
     let mut counts: HashMap<String, usize> = HashMap::new();
     let mut in_fence = false;
 

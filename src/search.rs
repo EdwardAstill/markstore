@@ -45,15 +45,18 @@ pub fn parse_query(raw: &str) -> QueryKind {
 /// Runs a full-text search against the FTS5 chunks index.
 ///
 /// `query` uses FTS5 query syntax (porter-stemmed, unicode61).
-/// Results are returned ordered by BM25 rank (best first).
+/// `sort`: "relevance" (default BM25), "date" (newest first), "title" (alpha).
+/// `offset`: skip first N deduplicated results.
 pub fn fts_search(
     db: &Db,
     query: &str,
     limit: usize,
+    offset: usize,
     collection: Option<&str>,
     with_snippets: bool,
+    sort: &str,
 ) -> MksResult<Vec<SearchResult>> {
-    db.fts_search(query, limit, collection, with_snippets)
+    db.fts_search(query, limit, offset, collection, with_snippets, sort)
 }
 
 /// Returns `true` if the document satisfies a `--where` filter expression.

@@ -95,7 +95,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         // ── Search ────────────────────────────────────────────────────────────
-        Command::Search { query, limit, collection, snippets, where_clause } => {
+        Command::Search { query, limit, offset, collection, snippets, where_clause, sort, format } => {
             let db = open_store(&db_path)?;
 
             let results = match parse_query(&query) {
@@ -111,13 +111,13 @@ fn main() -> anyhow::Result<()> {
                             .with_context(|| "Vector search failed")?,
                         None => {
                             eprintln!("Warning: Ollama unavailable, falling back to BM25.");
-                            search::fts_search(&db, &q, limit, collection.as_deref(), snippets)
+                            search::fts_search(&db, &q, limit, offset, collection.as_deref(), snippets, &sort)
                                 .with_context(|| "Search failed")?
                         }
                     }
                 }
                 QueryKind::Lex(q) => {
-                    search::fts_search(&db, &q, limit, collection.as_deref(), snippets)
+                    search::fts_search(&db, &q, limit, offset, collection.as_deref(), snippets, &sort)
                         .with_context(|| "Search failed")?
                 }
             };
@@ -136,7 +136,20 @@ fn main() -> anyhow::Result<()> {
                 results
             };
 
-            if results.is_empty() {
+            if format == "json" {
+                let arr: Vec<serde_json::Value> = results.iter().map(|r| {
+                    let mut obj = serde_json::json!({
+                        "id": r.doc_id,
+                        "title": r.title,
+                        "collection": r.collection,
+                    });
+                    if let Some(snip) = &r.snippet {
+                        obj["snippet"] = serde_json::Value::String(snip.clone());
+                    }
+                    obj
+                }).collect();
+                println!("{}", serde_json::to_string_pretty(&arr)?);
+            } else if results.is_empty() {
                 println!("No results.");
             } else {
                 for r in &results {
@@ -158,13 +171,27 @@ fn main() -> anyhow::Result<()> {
         }
 
         // ── List ──────────────────────────────────────────────────────────────
-        Command::List { collection, limit } => {
+        Command::List { collection, limit, offset, format } => {
             let db = open_store(&db_path)?;
+            // fetch limit+offset then skip
+            let fetch = limit + offset;
             let docs = db
-                .list_documents(collection.as_deref(), limit)
+                .list_documents(collection.as_deref(), fetch)
                 .with_context(|| "Failed to list documents")?;
+            let docs: Vec<_> = docs.into_iter().skip(offset).collect();
 
-            if docs.is_empty() {
+            if format == "json" {
+                let arr: Vec<serde_json::Value> = docs.iter().map(|doc| {
+                    serde_json::json!({
+                        "id": doc.id,
+                        "title": doc.title,
+                        "collection": doc.collection,
+                        "path": doc.path,
+                        "added_at": doc.added_at.to_rfc3339(),
+                    })
+                }).collect();
+                println!("{}", serde_json::to_string_pretty(&arr)?);
+            } else if docs.is_empty() {
                 println!("No documents.");
             } else {
                 for doc in &docs {
@@ -177,6 +204,13 @@ fn main() -> anyhow::Result<()> {
                     );
                 }
             }
+        }
+
+        // ── Optimize ──────────────────────────────────────────────────────────
+        Command::Optimize => {
+            let db = open_store(&db_path)?;
+            db.optimize().with_context(|| "Optimize failed")?;
+            println!("Store optimized.");
         }
 
         // ── Remove ────────────────────────────────────────────────────────────
@@ -398,10 +432,10 @@ fn resolve_inputs(input: &str) -> anyhow::Result<Vec<PathBuf>> {
     }
 
     if path.is_dir() {
-        let mut files: Vec<PathBuf> = std::fs::read_dir(path)?
+        let canonical = path.canonicalize()?;
+        let pattern = format!("{}/**/*.md", canonical.display());
+        let mut files: Vec<PathBuf> = glob::glob(&pattern)?
             .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("md"))
             .collect();
         files.sort();
         return Ok(files);

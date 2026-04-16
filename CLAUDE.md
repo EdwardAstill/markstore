@@ -46,7 +46,7 @@ mks search <query>
   ├─ lex: / default  Db::fts_search()     FTS5 MATCH + BM25 rank
   ├─ vec:            embed::embed()        Ollama /api/embeddings
   │                  Db::vector_search()   cosine similarity in Rust
-  └─ --where         search::where_matches()  post-filter on document fields
+  └─ --where-clause         search::where_matches()  post-filter on document fields
 
 mks embed
   └─ Db::find_unembedded_docs() → doc IDs without embeddings
@@ -99,7 +99,7 @@ meta         -- key/value store version
 
 **URL ingestion uses the URL as path.** `ingest_content()` stores the source URL in `documents.path`. Content deduplication works the same way as for files.
 
-**`--where` is a post-filter.** `where_matches()` runs after FTS5 or vector search. Each result triggers `get_document()` to access frontmatter fields. Fine for personal-scale stores.
+**`--where-clause` is a post-filter.** `where_matches()` runs after FTS5 or vector search. Each result triggers `get_document()` to access frontmatter fields. Fine for personal-scale stores.
 
 ## Build
 
@@ -121,14 +121,18 @@ mks watch ./notes/
 mks search "attention mechanism"
 mks search "lex: transformer" --snippets
 mks search "vec: how does attention work"
-mks search "training" --where "collection=papers"
-mks search "paper" --where "date>2024-01"
+mks search "training" --where-clause "collection=papers"
+mks search "paper" --where-clause "date>2024-01"
+mks search "topic" --sort date --limit 20 --offset 20   # page 2
+mks search "topic" --format json | jq '.[].id'
 mks embed
 mks embed --model mxbai-embed-large --force
 mks list --collection research
+mks list --format json
 mks get a1b2c3d4e5f6
 mks remove a1b2c3d4e5f6
 mks stats
+mks optimize
 mks graph build
 mks graph query "attention" --depth 2
 mks graph path "Introduction" "Conclusion"

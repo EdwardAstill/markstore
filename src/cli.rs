@@ -43,6 +43,10 @@ pub enum Command {
         #[arg(short, long, default_value = "10")]
         limit: usize,
 
+        /// Skip the first N results (for pagination)
+        #[arg(long, default_value = "0")]
+        offset: usize,
+
         /// Filter by collection
         #[arg(short, long)]
         collection: Option<String>,
@@ -51,10 +55,18 @@ pub enum Command {
         #[arg(long)]
         snippets: bool,
 
-        /// Filter on document or frontmatter fields, e.g. --where "date>2024-01"
+        /// Filter on document or frontmatter fields, e.g. --where-clause "date>2024-01"
         /// Supports: =  !=  >  <  >=  <=  for collection, path, title, or any frontmatter key
         #[arg(long, value_name = "EXPR")]
         where_clause: Option<String>,
+
+        /// Sort results: relevance (default), date, title
+        #[arg(long, default_value = "relevance", value_name = "FIELD")]
+        sort: String,
+
+        /// Output format: text (default), json
+        #[arg(long, default_value = "text", value_name = "FMT")]
+        format: String,
     },
 
     /// Retrieve a document by ID and print its full content
@@ -72,7 +84,18 @@ pub enum Command {
         /// Maximum results to return
         #[arg(short, long, default_value = "20")]
         limit: usize,
+
+        /// Skip the first N results (for pagination)
+        #[arg(long, default_value = "0")]
+        offset: usize,
+
+        /// Output format: text (default), json
+        #[arg(long, default_value = "text", value_name = "FMT")]
+        format: String,
     },
+
+    /// Run PRAGMA optimize and VACUUM to reclaim space and improve query performance
+    Optimize,
 
     /// Remove a document and all its graph nodes/edges from the store
     Remove {
