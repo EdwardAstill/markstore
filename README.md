@@ -10,6 +10,18 @@ Pairs well with `cnv` (convert2): convert a PDF to markdown with `cnv`, then sto
 
 ## Install
 
+Prebuilt Linux x86_64 binary from GitHub Releases:
+
+```sh
+mkdir -p ~/.local/bin
+gh release download -R EdwardAstill/markstore --pattern 'mks' --output ~/.local/bin/mks
+chmod +x ~/.local/bin/mks
+```
+
+Make sure `~/.local/bin` is on your `$PATH`. The release also ships a `markstore-x86_64-linux.tar.gz` archive if you'd rather extract it yourself.
+
+### From source (contributors only)
+
 ```sh
 cargo build --release
 cp target/release/mks ~/.local/bin/
